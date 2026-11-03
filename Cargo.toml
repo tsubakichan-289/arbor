@@ -1,0 +1,16 @@
+[package]
+name = "arbor"
+version = "0.1.0"
+edition = "2024"
+description = "A center-anchored mind-map terminal file browser"
+license = "MIT"
+
+[dependencies]
+ratatui = { version = "0.30.2", default-features = false, features = ["crossterm"] }
+crossterm = "0.29"
+unicode-width = "0.2"
+unicode-segmentation = "1.12"
+libc = "0.2"
+
+[dev-dependencies]
+tempfile = "3"
