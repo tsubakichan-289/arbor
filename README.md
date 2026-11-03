@@ -1,6 +1,8 @@
 # Arbor
 
-Rust製のマインドマップ型TUIファイラと統合コマンド実行環境。ディレクトリを辿るたびに列を右へ追加し、祖先と現在の選択を水平な枝で結びます。ファイラ操作自体は読み取り専用で、明示的に入力した外部コマンドは現在ユーザーの権限で実行します。
+A terminal file browser and command environment written in Rust. Arbor displays directory hierarchies as columns connected by branches, keeping the current selection centered as you navigate.
+
+Browsing is read-only. Commands you explicitly enter run with your user account's permissions.
 
 ```text
  documents/                       ╭── src/
@@ -10,188 +12,151 @@ Rust製のマインドマップ型TUIファイラと統合コマンド実行環�
  pictures/                        ╰── README.md
 ```
 
-## 起動
+## Getting started
 
-LinuxとRust Stableを使用します。今回の検証環境はRust/Cargo 1.95.0です。
+Arbor targets Linux and stable Rust. The documented development environment uses Rust/Cargo 1.95.0. Both input and output must be attached to an interactive TTY.
 
 ```bash
-cd /home/tsubaki/work/rs/arbor
+git clone https://github.com/tsubakichan-289/arbor.git
+cd arbor
 cargo run -- ~/projects
 cargo run -- /etc
-cargo run                     # プロセスのカレントディレクトリ
+cargo run                     # Start in the current working directory
 cargo run -- --help
 ```
 
-Nix環境には `shell.nix` を用意しています。
+A Nix development shell is included:
 
 ```bash
 nix-shell
 cargo run -- ~/projects
 ```
 
-任意で `cargo install --path . --locked` を実行すると `arbor` コマンドで起動できます。入出力には対話可能なTTYが必要です。`~` はシェルが展開します。存在しないパス、通常ファイル、起点そのものがシンボリックリンクの場合は明示的なエラーになります。途中のパス成分はOSに従って解決し、起点を絶対パスへ正規化します。
-
-依存関係はRatatui 0.30.2、Crossterm 0.29、unicode-width 0.2、unicode-segmentation 1系です。RatatuiとCrosstermは[公式の互換バージョン](https://ratatui.rs/installation/)を使用し、解決したバージョンを `Cargo.lock` に保存しています。
-
-## 操作
-
-| キー | 操作 |
-|---|---|
-| ↑ / ↓ | 現在列の前 / 次の項目を選択 |
-| ← | 親へ戻り、移動元のディレクトリを再選択 |
-| → | ディレクトリに入る。ファイル・リンクでは無操作 |
-| : | コマンド入力モードへ移行 |
-| ! | 現在ディレクトリで対話型シェルを起動 |
-| q / Esc / Ctrl-C | 終了して端末を復元 |
-
-上下左右の移動でも選択ハイライトの中心は画面中央に固定します。上下キーで動くのは現在列のリストだけで、祖先列と祖先間の水平線のY座標は変わりません。左右キーでは階層全体の表示範囲が横へ移動します。空ディレクトリには中央行に `(empty)`、取得失敗には `(error)` を表示し、詳細は最下行に表示します。
-
-ディレクトリ名には `/`、リンク名には `@` を付けます。隠しファイルも表示します。ディレクトリを先に置き、各グループを元の `OsString` の名前順に整列します。UTF-8不正バイトは表示時だけ置換し、パスはそのまま保持します。制御文字はエスケープ表示するため、ファイル名が端末制御や改行になることはありません。
-
-## コマンド入力
-
-`:` を押すと最下行が入力欄になります。その直上にコマンド結果の表示領域を置き、標準出力・標準エラーと終了状態を表示します。通常モードでも同じ領域を予約し、選択行は結果・入力領域を除くファイラの中央に固定します。結果領域は端末の高さの1/3、最大8行です。
-
-実行中も出力を更新し、Ctrl+Cで中断できます。完了後はEnter待ちを挟まず空の入力欄へ戻るため、そのまま次のコマンドを入力できます。Escで通常のファイラ操作へ戻ります。結果は次のコマンドまで保持し、長い行は折り返して末尾を表示します。保持量は最大64 KiBで、古い部分を捨てた場合は表示に明記します。ANSI色や端末制御シーケンスは除去し、プレーンテキストとして表示します。
-
-| キー | コマンドモードでの操作 |
-|---|---|
-| 文字・Backspace・Delete | 入力、直前／現在の書記素を削除 |
-| ← / →、Home / End | 文字カーソルを移動 |
-| Ctrl+F | 選択項目のファイル名をカーソル位置に挿入 |
-| Ctrl+P | 選択項目の絶対パスを挿入 |
-| Ctrl+D | Arborの現在ディレクトリの絶対パスを挿入 |
-| Tab | 入力欄とファイラのフォーカスを切り替え |
-| Enter | 入力欄にフォーカスがあるとき実行 |
-| Esc / Ctrl+C | キャンセルして通常モードへ戻る |
-
-Tabでファイラへ移った間は矢印キーで選択・階層移動ができます。入力と文字カーソルは保持され、`q`やEnterで誤って終了・実行しません。パス挿入ショートカットはコマンドモードの両フォーカスで使えます。実行時点のArborの現在ディレクトリを作業ディレクトリとします。
-
-例えば `:diff ` と入力して、Tab・矢印で項目を選び、Ctrl+Pで1つ目のパスを挿入します。同様に2つ目を選んで挿入し、Tabで入力へ戻ってEnterで実行できます。引数間の空白は挿入時に補います。
-
-入力の編集はUnicodeの書記素単位です。日本語、結合文字、絵文字を途中で切りません。入力が長い場合は文字カーソルが見えるよう横スクロールします。ファイル名に含まれる制御文字は画面上ではエスケープ表示し、入力バッファでは元の文字列を保持します。
-
-### 引数の引用
-
-挿入する名前・パスはPOSIX形式の単一引用符で囲み、内部の `'` は `\'` を引用符の外で使って表します。`-` 始まりの相対ファイル名には `./` を付けます。空白・改行・メタ文字を含む引数も単一引数のまま渡します。
-
-挿入先が引用符、エスケープ、展開、コメント、ヒアドキュメント等の内部である場合は、安全な単独引数を保証できないため入力を変更せず理由を表示します。初期版では展開や複数行を含む接頭部も保守的に拒否します。通常の単語位置へカーソルを移して挿入してください。
-
-非UTF-8の名前・パスは損失変換せず挿入を拒否します。引数挿入に対応するシェルはsh/bash/zsh/dash/ksh/ashです。それ以外のシェルでも手入力したコマンドの実行はできますが、引用規則を保証できないためパス挿入は拒否します。
-
-### 組み込みと外部コマンド
-
-`cd`、`cd .`、`cd ..`、`cd -`、`cd src`、`cd ../another`、`cd ~/projects`、`cd /etc`、`cd 'directory with spaces'` に対応します。引数なしの`cd`は`HOME`へ、`cd -`は最後に左右キーまたは`cd`で移動する直前のディレクトリへ移動します。`pwd`はArborの現在ディレクトリを入力欄の直上に表示します。
-
-組み込みの字句解析は引用符とバックスラッシュに対応します。`~`と`~/...`は引用されていない場合に展開します。単純な組み込み内の変数・コマンド置換・グロブ・ブレース展開は未対応としてエラーにします。`cdrom`や`echo cd`、`cd src && cargo test`などの複合コマンドは組み込みと判定せず、文字列をそのまま外部シェルへ渡します。複合コマンド内部の`cd`はArborには反映しません。
-
-ディレクトリ変更は左右キーと組み込みで共通の `BrowserState::navigate_to` を使います。正規化と読み取り・探索権限の検証を先に行い、成功時にルートからの経路を構築します。共通祖先の列と既存プレビューは再利用します。失敗時は元のパス・選択・入力を維持し、エラーを表示します。プロセス全体のカレントディレクトリは変更しません。
-
-外部コマンドは `$SHELL -c`、対話型シェルは `$SHELL -i` で実行し、`SHELL`が未設定・見つからない場合は `/bin/sh` を使用します。コマンド欄からの実行は端末を切り替えず、標準出力と標準エラーを共通のストリームから非ブロッキングで読み取ります。標準入力はEOFとし、子プロセスには制御端末を渡しません。入力待ちやエディタなど対話が必要なプログラムは、Escで通常モードへ戻り、`!`から起動したシェル内で使用してください。対話型シェルは`exit`で直ちにArborへ戻ります。シェル内での`cd`はArborの現在位置を変更しません。
-
-画面内での実行では子を独立したセッション／プロセスグループに入れ、Ctrl+Cをそのグループへ転送します。1フレームの読み取り量も制限するため、大量出力中も画面更新と中断を処理できます。
-
-`!`ではRaw ModeとAlternate Screenを解除し、子プロセスを独立したプロセスグループに入れて端末のフォアグラウンドを渡します。Ctrl+Cは子側へ届き、Arborは待機中の割り込みで終了しません。終了後はフォアグラウンド、端末属性、画面を復元します。シェル内でecho等を変更した場合も修復します。復帰失敗は握りつぶさず、可能なクリーンアップを行ってエラー終了します。
-
-復帰時は現在列・祖先列・プレビューを再取得します。選択は元のパスで復元し、削除された場合は近い有効な項目を選びます。現在ディレクトリ自体が削除・アクセス不能になった場合は、有効な祖先へ戻して理由を表示します。
-
-## 終了後に起動元シェルも移動する
-
-バイナリをPATHへ置いてから、使用しているシェルの設定ファイルでラッパーを読み込んでください。ユーザーの設定ファイルはArbor側では変更しません。
+To install the command:
 
 ```bash
-# ビルド済みバイナリを使う場合（または cargo install --path . --locked）
-export PATH="/home/tsubaki/work/rs/arbor/target/debug:$PATH"
-# ~/.bashrc に追加
-source /home/tsubaki/work/rs/arbor/scripts/arbor.bash
+cargo install --path . --locked
+arbor ~/projects
 ```
+
+The shell expands `~`. A nonexistent path, a regular file, or a starting path that is itself a symbolic link is rejected. Intermediate path components follow normal OS resolution, and the starting directory is normalized to an absolute path.
+
+The terminal interface uses Ratatui 0.30.2 and Crossterm 0.29, with `unicode-width` and `unicode-segmentation` for text layout. Resolved dependency versions are recorded in `Cargo.lock`.
+
+## Navigation
+
+| Key | Action |
+| --- | --- |
+| ↑ / ↓ | Select the previous or next item in the current column |
+| ← | Return to the parent and reselect the directory you came from |
+| → | Enter a directory; files and symbolic links are not entered |
+| `:` | Enter command mode |
+| `!` | Open an interactive shell in the current directory |
+| `q`, Esc, Ctrl+C | Exit and restore the terminal |
+
+The selection stays centered. Vertical navigation moves only the current column's list; ancestor columns and their horizontal connections retain their vertical positions. Horizontal navigation shifts the visible hierarchy.
+
+Directories end in `/`, symbolic links in `@`, and hidden files are shown. Directories sort before other entries, using the original `OsString` names within each group. Invalid UTF-8 is replaced only for display; original paths are retained. Control characters in filenames are escaped.
+
+An empty directory shows `(empty)`. A failed directory read shows `(error)`, with details in the status line.
+
+## Command mode
+
+Press `:` to open the input line. A result area directly above it shows standard output, standard error, and exit status. Output updates while a command runs, and Ctrl+C interrupts the command. On completion, Arbor returns to an empty input line without requiring an extra Enter press.
+
+The result area occupies up to one third of the terminal height, capped at eight lines. It shows the tail of wrapped output, retains up to 64 KiB, and indicates truncation. ANSI colors and terminal control sequences are removed. Results remain visible until the next command.
+
+| Key | Action in command mode |
+| --- | --- |
+| Text, Backspace, Delete | Insert text or remove the previous/current grapheme |
+| ← / →, Home / End | Move the text cursor |
+| Ctrl+F | Insert the selected entry's filename |
+| Ctrl+P | Insert the selected entry's absolute path |
+| Ctrl+D | Insert Arbor's current directory |
+| Tab | Switch focus between the input line and file browser |
+| Enter | Execute when the input line has focus |
+| Esc, Ctrl+C | Cancel and return to normal navigation |
+
+While the browser has focus, arrow keys select entries and navigate directories without losing the command text or cursor position. The path insertion shortcuts work with either focus. `q` and Enter do not accidentally exit or execute while browsing in command mode.
+
+For example, type `:diff `, press Tab to select a file, and press Ctrl+P to insert its path. Select and insert the second path, return to the input with Tab, and press Enter. Arbor inserts separating spaces when needed.
+
+Input editing operates on Unicode grapheme clusters, preserving Japanese text, combining characters, and emoji. Long input scrolls horizontally to keep the cursor visible.
+
+### Path quoting
+
+Inserted names and paths use POSIX single-quote escaping. Relative filenames beginning with `-` receive a `./` prefix. Spaces, newlines, and shell metacharacters remain part of a single argument.
+
+Insertion is rejected when the cursor is inside quoting, escaping, expansion, a comment, a here-document, or another context where a separate argument cannot be guaranteed. Prefixes containing expansions or multiple lines are also conservatively rejected. Move the cursor to a normal argument position before inserting.
+
+Non-UTF-8 paths are not converted lossily for command insertion. Supported quoting conventions are those of sh, bash, zsh, dash, ksh, and ash. Other shells can execute manually entered commands, but automatic path insertion is disabled.
+
+### Built-ins and external processes
+
+`cd` and `pwd` operate on Arbor's current directory. Examples include:
+
+```sh
+cd
+cd ..
+cd -
+cd src
+cd ~/projects
+cd '/path/with spaces'
+pwd
+```
+
+With no argument, `cd` goes to `HOME`. `cd -` returns to the directory preceding the latest navigation, including arrow-key navigation. Quoting and backslash escapes are supported, as are unquoted `~` and `~/...`. Variable substitution, command substitution, globbing, and brace expansion are not supported inside simple built-ins.
+
+Compound commands such as `cd src && cargo test` are passed to the external shell. Their directory changes do not affect Arbor. Failed built-in navigation preserves the current directory, selection, and input.
+
+External commands use `$SHELL -c`; interactive shells use `$SHELL -i`. If `SHELL` is unset or unavailable, Arbor falls back to `/bin/sh`.
+
+Commands entered through `:` run without a controlling terminal and receive EOF on standard input. Standard output and standard error share a captured stream. Use `!` for editors, interactive programs, or commands that require terminal input. Exit the interactive shell with `exit`; its internal `cd` commands do not change Arbor's location.
+
+Captured commands run in a separate session/process group, and Ctrl+C is forwarded to that group. For interactive shells, Arbor releases raw mode and the alternate screen, gives the child foreground terminal ownership, and restores terminal settings when it returns. Directory listings are refreshed on return. If an entry has disappeared, Arbor selects a nearby entry; if the current directory has become inaccessible, it falls back to an accessible ancestor.
+
+## Change the launching shell's directory on exit
+
+After installing the binary, source the appropriate wrapper from your shell configuration. Replace `/path/to/arbor` with your checkout location. Arbor does not edit your shell configuration automatically.
+
+For Bash, add to `~/.bashrc`:
+
+```bash
+source /path/to/arbor/scripts/arbor.bash
+```
+
+For Zsh, add to `~/.zshrc`:
 
 ```zsh
-# ~/.zshrc に追加
-export PATH="/home/tsubaki/work/rs/arbor/target/debug:$PATH"
-source /home/tsubaki/work/rs/arbor/scripts/arbor.zsh
+source /path/to/arbor/scripts/arbor.zsh
 ```
 
-設定後は `arbor ~/projects` で起動し、終了すると起動元のシェルも最後の場所へ移ります。連携を使わず直接バイナリを呼ぶ場合は `command arbor` とします。
+Run `arbor ~/projects`. On successful exit, the launching shell changes to the final directory. Use `command arbor` to call the binary without the wrapper.
 
-ラッパーは `mktemp` で作った一時ファイルを `--cwd-file FILE` で渡します。Arborは正常終了時だけ絶対パスの生バイト列と末尾NULを書きます。ラッパーはNUL区切りで読み取り、シェル自身の `cd -- "$path"` を使います。パスをコードとして評価せず、空白・改行・引用符・非UTF-8も保持します。引数とArborの終了コードを保持し、成功・失敗のどちらでも一時ファイルを削除します。移動自体に失敗した場合は`cd`の終了コードを返します。
+The wrapper creates a temporary file and passes it through `--cwd-file FILE`. Arbor writes an absolute path as raw bytes followed by NUL only on successful exit. The wrapper reads the path and invokes its own `cd`, without evaluating the path as code. It preserves arguments, exit status, and unusual filename bytes, and removes the temporary file on both success and failure.
 
-`--cwd-file`は、呼び出し側が用意した所有者本人だけがアクセスできる通常ファイル（例: 0600、ハードリンク数1）を要求します。シンボリックリンクを辿らず起動前に一度だけ開き、正常終了まで内容を変更しません。任意のファイルを新規作成したり、検証前に切り詰めたりしません。
+`--cwd-file` requires an existing regular file accessible only to its owner, such as a mode-0600 file with one hard link. Arbor opens it once without following symbolic links and does not change its contents before successful exit.
 
-## レイアウトと状態
+## Layout and architecture
 
-- 起動時からルートまでの祖先列を読み込み、各祖先で起動ディレクトリに至る子を選択します。親は最初の画面から左側に表示され、幅に収まらない祖先は論理的に保持したままクリッピングします。祖先の読み取りが失敗しても、その列にエラーを保持して起動を続けます。
-- `columns` はルートから現在までの確定経路、末尾がActiveです。右へ進むとPreviewの中央行に表示されている項目を選択し、各行の縦位置を保ったままActiveへ昇格させます。Ancestorの選択は保持します。左へ戻る際も元のActiveの選択と縦位置をPreviewに引き継ぎます。別の項目へ移ってプレビューを再取得した場合は中央項目からの表示になります。
-- ヘッダと最下部の結果・入力／状態領域を除く領域の中央を `C` とし、確定列の項目を `Y(i) = C + (i - selected) * h` に配置します。結果領域は全モード共通の高さなので、モード切り替えで選択位置は跳びません。全列を動かす縦スクロール量は持ちません。
-- 新しいPreviewの基準項目は `s = floor((n - 1) / 2)`、先頭は `C - s * h` です。偶数個では中央2項目の上側を親と同じ行に揃えます。項目間へ接続する `┤` ではなく項目の行に接続し、上下に項目がある場合は `┼` になります。空状態は中央行、1項目では直線、2項目では先頭行の `┬` で接続します。親へ戻った際のPreviewは直前の選択を基準にし、縦位置を維持します。
-- 列幅は表示幅に左右1セルずつを足し、12〜32セルに制限します。列間は6セル。ラベルは書記素単位で省略し、日本語や結合文字を分断しません。
-- 仮想座標は符号付き64ビット値です。水平ビューポートは `offset_x = active.x + active.width / 2 - screen.width / 2` とし、現在列のハイライト中央を画面中央に固定します。起点でも中央に置けるよう、負のオフセットを許して左側を空白にします。画面外の祖先も確定経路に残ります。リサイズ時は新しい画面中央へ揃えます。
-- 接続線は専用の列間領域に置きます。親の選択項目から現在列・祖先列の各項目へもフォーク状の罫線を描き、右側のプレビューと同様に親子関係を示します。現在列を上下操作すると、その列に入る枝先が各行に追従します。さらに左の祖先間のフォークは固定です。中央の水平経路 `Path`、確定列への分岐 `DirectoryBranch`、プレビューへの分岐 `PreviewBranch` を区別し、各セルの上下左右ビットをOR合成して罫線文字へ変換します。描画順で分岐形状が変わることはありません。角は既定で `╭`・`╮`・`╰`・`╯` の丸角です。`LayoutConfig::rounded_corners = false` で直角にもできます（設定ファイル・CLIオプションは未実装）。
-- 上下の可視インデックス範囲を式から求め、可視ノードだけを生成します。長い分岐線も画面範囲に切ってからラスター化します。列幅は一覧取得時に集計しており、毎フレーム全項目を走査しません。
-- 末尾1行とその上の結果領域は通常・コマンドモード共通で予約します。ファイラ領域が3行以上では先頭行をパスに使います。2行の端末では上段がファイラ、下段が状態／入力欄です。1行では状態／入力欄のみとし、0幅・0高さも安全に扱います。
+Arbor loads the ancestor path from the filesystem root at startup. Off-screen ancestors remain in the logical path. The current column's selection is centered in the browser area, excluding the header, command output, and status/input lines. Those reserved areas have the same height in normal and command modes, so switching modes does not move the selection.
 
-## ファイル構成
+Columns are 12–32 terminal cells wide, with six cells between them. Labels are shortened at grapheme boundaries. Connector segments combine directional bits before rendering, keeping their shape independent of drawing order. Only visible rows and clipped connector segments are drawn. Directory reads and sorting are synchronous.
 
-```text
-Cargo.toml / Cargo.lock        依存関係と固定バージョン
-shell.nix / .gitignore        開発環境・ビルド生成物の除外
-src/
-  main.rs                     CLI、イベントループ
-  lib.rs                      テスト可能なライブラリ公開境界
-  app/
-    mod.rs / state.rs         確定経路、プレビュー、ビューポート
-    navigation.rs / event.rs  選択変更、階層移動、キー変換
-    cli.rs                    起動引数とパスの検証
-    mode.rs / controller.rs   Normal/Command/ExternalProcessとフォーカスの状態遷移
-  command/
-    mod.rs / input.rs         書記素単位の文字列編集とカーソル
-    parser.rs / builtin.rs    安全な組み込み判定とcd/pwd
-    quoting.rs                単一引数引用・挿入位置の検証
-    executor.rs / shell.rs    外部プロセス、端末所有権、シェルの選択
-    captured.rs / output.rs   画面内実行、非ブロッキング読み取り、容量制限した結果
-    cwd_file.rs / history.rs  NUL終端パス出力・最大100件のセッション履歴
-  fs/
-    mod.rs / entry.rs         DirectorySource、元の名前・パス・種別
-    scanner.rs                同期読み取り、整列、回復可能なエラー
-  layout/
-    mod.rs / geometry.rs      レイアウトAPI、仮想座標
-    column.rs / placement.rs  列モデル、純粋な配置計算、省略処理
-    connector.rs              線分、クリッピング、方向ビット合成
-    viewport.rs               可視領域、水平フォーカス
-    screen.rs                 ファイラ・結果・入力の画面領域分割
-  ui/
-    mod.rs / browser.rs       RatatuiカスタムWidget
-    canvas.rs                 計算済み座標の変換、安全な描画
-    style.rs / status.rs      色と状態表示
-    terminal.rs               Raw Mode、Alternate Screen、復元ガード
-    command_line.rs           入力欄・横スクロールと文字カーソルの表示
-    command_status.rs         外部コマンドの終了状態
-    command_output.rs         入力欄の上への結果表示・折り返し
-tests/
-  layout.rs / connector.rs   中央固定、祖先固定、分岐、可視範囲制限
-  navigation.rs              仮想ツリーでのキー・階層移動
-  filesystem.rs              実ファイル、権限、UTF-8、リンク、CLI解析
-  rendering.rs / cli.rs      描画バッファ、リサイズ、実バイナリのCLI
-  command_input.rs           入力・フォーカス・状態遷移・狭い画面
-  command_output.rs          逐次出力・中断・容量制限・結果の配置
-  quoting.rs / builtins.rs   引数のシェル往復・cd/pwd・失敗時の保持
-  execution.rs               外部コマンドのcwd・終了コード・起動失敗
-  cwd_file.rs                バイト列出力・ファイル検証・CLIオプション
-  shell_wrappers.rs          Bash/Zshでのパス・引数・終了コード・掃除
-examples/terminal_probe.rs   エラー・panic時の復元を確認する補助バイナリ
-scripts/pty_smoke.py         Linux疑似端末での統合検証
-scripts/command_pty.py       コマンド入力からシェル・TUI復帰までの実プロセス検証
-scripts/arbor.bash           Bashの終了ディレクトリ連携
-scripts/arbor.zsh            Zshの終了ディレクトリ連携
-```
+| Location | Responsibility |
+| --- | --- |
+| `src/app/` | Navigation, application modes, focus, event handling, CLI validation |
+| `src/command/` | Input editing, quoting, built-ins, captured processes, shells, cwd files |
+| `src/fs/` | Directory sources, original names and paths, scanning, sorting |
+| `src/layout/` | Pure coordinate calculations, columns, connectors, clipping, viewport |
+| `src/ui/` | Ratatui widgets, rendering, terminal restoration, command output |
+| `tests/` | Layout, navigation, filesystem, commands, rendering, shell integration |
+| `scripts/arbor.bash`, `scripts/arbor.zsh` | Launching-shell directory integration |
+| `scripts/pty_smoke.py`, `scripts/command_pty.py` | Linux pseudo-terminal checks |
 
-`layout` はファイルシステムにアクセスしません。`ui` は配置を決めず、レイアウトから渡された座標を描画します。読み取りは `DirectorySource` で差し替えられるため、ナビゲーションを実ファイルシステムなしで検証できます。
+`layout` does not access the filesystem, and `ui` renders coordinates supplied by the layout layer. `DirectorySource` can be replaced for tests. `Application` owns interaction modes and command input/output; `BrowserState` owns the current directory and selected path.
 
-`Application` が操作モードと入力・出力、`BrowserState` が唯一の現在ディレクトリと選択経路を管理します。入力から生じる実行要求はイベントハンドラから返し、専用の実行モジュールが処理します。画面内での外部実行が終わると `finish_captured` が入力モードへの復帰と一覧更新を行います。対話シェルからは `finish_external` で通常モードへ戻ります。
-
-## 検証
-
-従来の描画・移動の回帰テストに、C1〜C6のコマンド環境と画面内出力のテストを追加しました。52件すべてのRustテストが成功し、Clippyの警告もありません。
+## Development checks
 
 ```bash
 cargo fmt --all --check
@@ -200,33 +165,39 @@ cargo test
 cargo clippy --all-targets -- -D warnings
 ```
 
-テストは中央固定、祖先全項目の不変性、水平経路、子0〜6個の配置、罫線の合成、10万項目の可視範囲制限、Unicodeの幅・クリッピング、0〜40列×0〜25行の描画、リサイズ、移動、実際の権限エラーとUTF-8不正名を含みます。権限テストは非特権ユーザー（今回はUID 1000）で検証しました。root等で拒否を再現できない場合、そのテストは理由を出力して終了します。
+Tests cover selection centering, stable ancestors, connector composition, large-list clipping, Unicode, narrow terminals, resizing, navigation, filesystem errors, command execution, quoting, output limits, and shell wrappers. Permission tests require a user for whom access restrictions can be reproduced; they report when that is not possible. Zsh-specific checks report a skip if Zsh is unavailable.
 
-実プロセスの端末復元も検証できます。Pythonの標準ライブラリのみを使用します。
+To exercise real terminal restoration and command interaction using Python's standard library:
 
 ```bash
 cargo build --bins --examples
 python3 scripts/pty_smoke.py
 python3 scripts/command_pty.py
-# NixでPythonも必要な場合:
+```
+
+Or use Nix with Python and Zsh:
+
+```bash
 nix-shell -p cargo rustc rustfmt clippy python3 zsh --run \
   'cargo test && cargo build --bins --examples && python3 scripts/pty_smoke.py && python3 scripts/command_pty.py'
 ```
 
-6ケース（矢印・リサイズ後のq終了、Esc、Ctrl-C、初期化失敗、実行エラー、panic）で、端末属性の完全な復元とAlternate Screen退出・カーソル再表示を確認しました。疑似端末ではRatatuiのカーソル位置問い合わせに応答し、初期化失敗のケースでは意図的に応答しません。
+The PTY scenarios cover normal exit, interruption, initialization failures, runtime errors, panic, interactive shell return, terminal setting changes, path insertion, and cwd-file output. The documented checks use Ratatui's test backend and Linux PTYs; manual visual testing in an external terminal emulator has not been recorded.
 
-コマンド用PTYシナリオでは、Tabで移動後のCtrl+F/P/D挿入、cd/pwd、正常・非ゼロ終了、Ctrl+C、対話シェルのexit、シェル内cdの分離、sttyによる端末変更からの修復、起動失敗からの復帰、cwd-file出力を検証します。小さなRustプロジェクトの `cargo test --offline` と現在ディレクトリの削除後の復帰も含みます。Bash/Zsh両方のラッパーを実行し、特殊文字と非UTF-8パスの安全な受け渡しを検証します。Zshがない環境ではそのラッパーテストだけ理由を出力して省略します。
+## Limitations
 
-外部ターミナルエミュレータでの人による目視操作は未実施です。画面の配置はRatatui TestBackendの期待値テスト、実際の入力と端末状態はLinux PTYで検証しています。
+- Directory reads and sorting are synchronous. Large directories and network filesystems can delay input, and memory use depends on the full listing size.
+- Listings are snapshots. There is no filesystem watcher; refreshes occur after external commands and interactive shells return.
+- Built-in copy, move, delete, rename, search, mouse input, symlink traversal, asynchronous scanning, and configuration files are not implemented.
+- Command history retains up to 100 entries in the current session, but recall keys, completion, and persistent history are not implemented.
+- Captured output shows only its tail, without scrollback or color reproduction. A child program's buffering can delay visible output.
+- There is no embedded PTY or custom job manager. Detached background jobs are not tracked. A top-level interactive shell stopped with Ctrl+Z is resumed automatically; job control inside that shell remains its responsibility.
+- Emoji widths depend on the terminal and font. Very small terminals cannot display every UI element. SIGKILL and terminal disconnection cannot be handled by the normal restoration path.
 
-## 制限と次の段階
+## License
 
-一覧取得・整列は同期処理です。描画量は可視範囲に制限しますが、初回読み取りと保持メモリはディレクトリ全体のサイズに依存します。特にネットワークFSや巨大なディレクトリでは入力待ちが発生し得ます。
+[MIT](LICENSE).
 
-保持した一覧はスナップショットで、ファイル監視はありません。外部コマンド・対話シェルの終了時には更新しますが、閲覧中の外部変更は後の再取得まで反映されない場合があります。端末とフォントによって絵文字の表示幅には差が出る可能性があります。極端に狭い端末ではラベル・プレビュー・状態表示をすべて表示できません。SIGKILLや端末切断など、プロセスが復元処理を実行できない終了は対象外です。
+---
 
-組み込みのコピー・移動・削除・改名、検索、マウス、リンク先への移動、非同期読み取り、設定ファイルは未実装です。外部コマンドやエディタはコマンド欄・対話シェルから利用できます。履歴はセッション内に最大100件を保持するだけで、履歴呼び出しキー・補完・永続化は未実装です。
-
-内蔵PTYや独自ジョブ管理はありません。画面内出力は末尾の表示のみで、過去の行へのスクロール・色の再現は未実装です。プログラム自身のバッファリングにより出力が終了まで遅れる場合があります。画面内コマンドから切り離されたバックグラウンドジョブの追跡は行いません。`!`で起動したトップレベルシェルをCtrl+Zで停止すると自動的に再開し、シェル内のジョブ管理はそのシェルに任せます。非POSIXシェルの引用・非UTF-8引数の入力表現は未対応として明示的に拒否します。
-
-次の段階では、履歴呼び出しと補完、選択パスを保つ非同期スキャン、表示設定を提案します。中央固定・祖先独立・水平経路のテストを維持したまま拡張できます。
+[日本語版 README](README.ja.md)
